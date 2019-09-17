@@ -16,9 +16,16 @@ class Queue {
   virtual int full() const { return int(s1) == s1.size() || int(s2) == s2.size(); }
   virtual T operator[](int x) const {
     if (x >= int(s2))return s1[x - int(s2)];
-    return s2[x];
+    return s2[int(s2) - x - 1];
   }
   virtual Queue &operator<<(T t) {
+    if (int(s1) >= s1.size()) {
+      while (int(s1) > 0) {
+        T e;
+        s1 >> e;
+        s2 << e;
+      }
+    }
     s1 << t;
     return *this;
   }

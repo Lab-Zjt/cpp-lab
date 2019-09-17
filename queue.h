@@ -20,9 +20,16 @@ class Queue : Stack<T> {
     if (x >= int(s)) {
       return Stack<T>::operator[](x - int(s));
     }
-    return s[x];
+    return s[int(s) - x - 1];
   }
   virtual Queue &operator<<(T t) {
+    if (Stack<T>::operator int() >= Stack<T>::size()) {
+      while (this->pos > 0) {
+        T e;
+        Stack<T>::operator>>(e);
+        s << e;
+      }
+    }
     Stack<T>::operator<<(t);
     return *this;
   }
