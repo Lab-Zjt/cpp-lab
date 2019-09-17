@@ -46,7 +46,9 @@ class Queue {
     return *this;
   }
   virtual void print() const {
-    s2.print();
+    for (int i = int(s2) - 1; i >= 0; --i) {
+      std::cout << s2[i] << "  ";
+    }
     s1.print();
   }
 
