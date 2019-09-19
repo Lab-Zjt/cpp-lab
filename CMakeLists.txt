@@ -8,7 +8,7 @@ if(WIN32)
     set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH} D:\\Qt\\5.12.2\\mingw73_64\\lib\\cmake")
 endif()
 
-add_executable(cpp_lab main.cpp)
+add_executable(lab1 lab1.cpp)
 add_executable(lab2 lab2.cpp)
 add_executable(lab3 lab3.cpp)
 add_executable(lab4 lab4.cpp)

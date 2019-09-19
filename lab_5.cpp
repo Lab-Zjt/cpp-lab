@@ -4,7 +4,7 @@
 
 
 int main(int argc, char *argv[]) {
-  TransportSystem ts("../stops.txt", "../lines.txt");
+  TransportSystem ts("stops.txt", "lines.txt");
 //  auto p = ts.CalculateDistance(atoi(argv[1]), atoi(argv[2]));
 //  //auto p = ts.CalculateDistance(13, 25);
 //  if (p.dist < 0) {

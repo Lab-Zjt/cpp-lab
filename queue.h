@@ -3,6 +3,7 @@
 
 #include "stack.h"
 
+// 和lab3一样，因此不再描述工作原理
 template<typename T>
 class Queue : Stack<T> {
   // *this -> input stack

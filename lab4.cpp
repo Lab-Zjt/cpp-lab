@@ -2,6 +2,7 @@
 
 using QUEUE = Queue<int>;
 
+// 解释器同lab1
 enum status {
   Init, Input, Output, Assign, Copy, Now, Get
 };

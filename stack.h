@@ -7,6 +7,7 @@
 template<typename T>
 class Stack {
  protected:
+  // 元素数组头指针
   T *const elems;
   const int max;
   int pos;

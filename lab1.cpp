@@ -1,84 +1,13 @@
 #include <iostream>
 #include <cstring>
+#include "lab1_stack.h"
 
-struct STACK {
-  int *elems;
-  int max;
-  int pos;
-};
-
-enum ErrorCode {
-  Success = 0, Failed = -1
-};
-
-int Error = Success;
-
-void initSTACK(STACK *const p, int m) {
-  p->max = m;
-  if (p->elems) {
-    free(p->elems);
-  }
-  p->elems = (int *) malloc(sizeof(int) * p->max);
-  if (!p->elems) {
-    throw std::runtime_error("");
-  }
-  p->pos = 0;
-}
-
-void initSTACK(STACK *const p, const STACK &s) {
-  initSTACK(p, s.max);
-  p->pos = s.pos;
-  memcpy(p->elems, s.elems, sizeof(int) * p->pos);
-}
-
-int size(const STACK *const p) {
-  return p->max;
-}
-int howMany(const STACK *const p) {
-  return p->pos;
-}
-int getelem(const STACK *const p, int x) {
-  if (x >= p->pos) {
-    throw std::runtime_error("");
-  }
-  return p->elems[x];
-}
-STACK *const push(STACK *const p, int e) {
-  if (p->pos >= p->max) {
-    throw std::runtime_error("");
-  }
-  p->elems[p->pos++] = e;
-  return p;
-}
-STACK *const pop(STACK *const p, int &e) {
-  if (p->pos <= 0) {
-    throw std::runtime_error("");
-  }
-  e = p->elems[--p->pos];
-  return p;
-}
-
-STACK *const assign(STACK *const p, const STACK &s) {
-  initSTACK(p, s);
-  return p;
-}
-
-void print(const STACK *p) {
-  for (int i = 0; i < p->pos; ++i) {
-    printf("%d  ", p->elems[i]);
-  }
-}
-
-void destroySTACK(STACK *const p) {
-  p->pos = p->max = 0;
-  free(p->elems);
-  p->elems = nullptr;
-}
-
+// 解释器状态
 enum status {
   Init, Input, Output, Assign, Copy, Now, Get
 };
 
+// 解释器
 class Executor {
   STACK s{nullptr, 0, 0};
   char **argv;
@@ -86,6 +15,7 @@ class Executor {
   status st;
  public:
   Executor(int c, char **v) : argv(v), argc(c) {}
+  // 尝试打印栈，当前一个操作是I、O、A、C时打印
   void try_print_stack() {
     switch (st) {
       case Input:
@@ -95,8 +25,11 @@ class Executor {
       default: {}
     }
   }
+  // 执行
   void Exec() {
+    // 遇到Error直接抛出异常，接住然后打印E即可
     try {
+      // 根据不同参数改变状态或执行命令
       for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "-S") == 0) {
           st = Init;
@@ -142,6 +75,7 @@ class Executor {
     }
 
   }
+  // 当前参数是一个数字，根据解释器状态执行相应函数
   void Do(int i) {
     if (st == Init) {
       initSTACK(&s, i);
