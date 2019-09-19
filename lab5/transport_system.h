@@ -72,7 +72,7 @@ class TransportSystem {
     trans = trans * trans;
   }
   // 计算两个站点间的最短换乘信息
-  MinRouteInfo CalculateDistance(int from, int to) const {
+  MinRouteInfo CalculateDistance(int from, int to, Strategy st) const {
     // 从站点列表获得站点信息
     auto &from_stop = stops.at(from);
     auto &to_stop = stops.at(to);
@@ -81,16 +81,24 @@ class TransportSystem {
     std::vector<TransportStopInfo> min_route;
     std::vector<char> min_orient;
     std::vector<int> min_stop;
+    int min_trans = std::numeric_limits<int>::max();
+    // 如果策略为换乘次数最少，则找到最少换乘次数的线路后立即结束循环
+    bool break_immediately = st == Strategy::Transport;
     // 计算所有可能的换乘线路，即计算从起点的所在线路到终点所在的线路可能的换乘线路
     for (const auto &from_route : from_stop.in_route) {
       for (const auto &to_route : to_stop.in_route) {
         // 在同一条线路上，可以不用换乘
         if (from_route == to_route) {
           auto[dist, s] = routes.at(from_route.first).distanceBetween(from, to_stop.number, from_route.second);
-          if (dist < min_distance) {
+          if (dist < min_distance || (break_immediately && min_trans > 0)) {
             min_distance = dist;
             min_orient.push_back(from_route.second);
             min_stop = s;
+            min_trans = 0;
+          }
+          // 策略为换乘次数最沙时，由于换乘次数为0，而以下循环换乘次数均大于0，因此直接跳过。
+          if (break_immediately) {
+            continue;
           }
         }
         // 从转乘矩阵获得从线路x到线路y的转乘信息
@@ -155,20 +163,22 @@ class TransportSystem {
                 }
               }
               // 如果该线路的距离更短，更新最短换乘信息
-              if (cur_dist >= 0 && cur_dist < min_distance) {
+              if (cur_dist >= 0 && cur_dist < min_distance && !(info.first > min_trans && break_immediately)) {
                 min_distance = cur_dist;
                 min_route = route;
                 min_orient = cur_orient;
                 min_stop = all_stop;
+                min_trans = info.first;
               }
             }
           }
+          if (break_immediately)break;
         }
       }
     }
     return {min_distance, from, to, min_stop, min_route, min_orient};
   }
-  MinRouteInfo SearchRoute(Point from, Point to) const {
+  MinRouteInfo SearchRoute(Point from, Point to, Strategy st) const {
     // 先找到分别离起点和终点最近的车站
     float min_from_dist = std::numeric_limits<float>::max();
     float min_to_dist = std::numeric_limits<float>::max();
@@ -187,7 +197,7 @@ class TransportSystem {
       }
     }
     // 然后计算这两个车站的最短距离
-    auto info = CalculateDistance(min_from_stop, min_to_stop);
+    auto info = CalculateDistance(min_from_stop, min_to_stop, st);
     info.dist += min_from_dist + min_to_dist;
     return info;
   }
