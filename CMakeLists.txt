@@ -21,5 +21,6 @@ set(CMAKE_AUTORCC ON)
 add_executable(lab5 lab_5.cpp)
 
 find_package(Qt5Widgets REQUIRED)
+find_package(Qt5Gui REQUIRED)
 
-target_link_libraries(lab5 Qt5::Widgets)
+target_link_libraries(lab5 Qt5::Widgets Qt5::Gui)
