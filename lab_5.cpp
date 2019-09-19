@@ -4,6 +4,11 @@
 #include <iostream>
 #include <fstream>
 #include <map>
+#include <memory>
+#include <QWidget>
+#include <QtGui/QPainter>
+#include <QMouseEvent>
+#include <QtWidgets/QApplication>
 
 // 表示地图上的一个点
 struct Point {
@@ -49,9 +54,10 @@ struct Route {
   std::map<int, Stop> R;
  public:
   // 计算顺时针线路上两个站点的距离
-  float distanceAtC(int from_stop, int to_stop) const {
+  std::pair<float, std::vector<int>> distanceAtC(int from_stop, int to_stop) const {
     float dist = -1;
     Stop prev;
+    std::vector<int> stops;
     for (const auto &p : C) {
       // 找到开始站点，开始计算距离
       if (p.second.number == from_stop && dist < 0) {
@@ -61,31 +67,39 @@ struct Route {
       if (dist >= 0) {
         dist += prev.distance(p.second);
         prev = p.second;
+        stops.emplace_back(prev.number);
         // 找到到达站点，返回
         if (p.second.number == to_stop) {
-          return dist;
+          return {dist, stops};
         }
       }
     }
     // 没有完成计算
-    return -1;
+    return {std::numeric_limits<float>::max(), {}};
   }
   // 计算逆时针线路上两个站点的距离
-  float distanceAtR(int from_stop, int to_stop) const {
+  std::pair<float, std::vector<int>> distanceAtR(int from_stop, int to_stop) const {
     float dist = -1;
     Stop prev;
+    std::vector<int> stops;
     for (const auto &p : R) {
+      // 找到开始站点，开始计算距离
       if (p.second.number == from_stop && dist < 0) {
         dist = 0;
         prev = p.second;
       }
-      dist += prev.distance(p.second);
-      prev = p.second;
-      if (p.second.number == to_stop) {
-        return dist;
+      if (dist >= 0) {
+        dist += prev.distance(p.second);
+        prev = p.second;
+        stops.emplace_back(prev.number);
+        // 找到到达站点，返回
+        if (p.second.number == to_stop) {
+          return {dist, stops};
+        }
       }
     }
-    return -1;
+    // 没有完成计算
+    return {std::numeric_limits<float>::max(), {}};
   }
   friend std::ostream &operator<<(std::ostream &os, const Route &s) {
     std::cout << "[" << s.number << "C" << s.C.size() << "] Stop:[";
@@ -105,14 +119,14 @@ struct Route {
 };
 
 // 转乘信息
-struct TransportInfo {
+struct TransportStopInfo {
   // 从x号线路
   int from;
   // 转到y号线路
   int to;
   // 从z站点转乘
   int stop;
-  friend bool operator<(const TransportInfo &lhs, const TransportInfo &rhs) {
+  friend bool operator<(const TransportStopInfo &lhs, const TransportStopInfo &rhs) {
     if (lhs.from < rhs.from) return true;
     if (lhs.from > rhs.from) return false;
     if (lhs.to < rhs.to) return true;
@@ -120,7 +134,7 @@ struct TransportInfo {
     if (lhs.stop < rhs.stop) return true;
     return false;
   }
-  friend bool operator>(const TransportInfo &lhs, const TransportInfo &rhs) {
+  friend bool operator>(const TransportStopInfo &lhs, const TransportStopInfo &rhs) {
     if (lhs.from > rhs.from) return true;
     if (lhs.from < rhs.from) return false;
     if (lhs.to > rhs.to) return true;
@@ -131,7 +145,7 @@ struct TransportInfo {
 };
 
 // 表示转乘线路，它由一系列的转乘点组成
-using TransportRouteInfo = std::vector<TransportInfo>;
+using TransportRouteInfo = std::vector<TransportStopInfo>;
 
 // 连接两部分转乘线路，即把它们的转乘点合并在一起
 TransportRouteInfo operator+(const TransportRouteInfo &lhs, const TransportRouteInfo &rhs) {
@@ -287,7 +301,7 @@ class TransportMatrix {
     // 初始化矩阵，i==j时设置为存在一条由自己到自己的转乘线路
     for (int i = 1; i <= routes.size(); ++i) {
       for (int j = 1; j <= routes.size(); ++j) {
-        if (i == j) data[i][j].route[1] = {{TransportInfo{i, j, 0}}};
+        if (i == j) data[i][j].route[1] = {{TransportStopInfo{i, j, 0}}};
         else data[i][j].route = {};
       }
     }
@@ -302,7 +316,7 @@ class TransportMatrix {
           if (in_route.first != route.first) {
             // 加入转乘信息
             data[route.first][in_route.first].route[1]
-                .emplace(std::vector<TransportInfo>{TransportInfo{route.first, in_route.first, stop.second.number}});
+                .emplace(std::vector<TransportStopInfo>{TransportStopInfo{route.first, in_route.first, stop.second.number}});
           }
         }
       }
@@ -311,7 +325,7 @@ class TransportMatrix {
           if (data[route.first][in_route.first].route.empty()) { data[route.first][in_route.first].route[1] = {}; }
           if (in_route.first != route.first) {
             data[route.first][in_route.first].route[1]
-                .emplace(std::vector<TransportInfo>{TransportInfo{route.first, in_route.first, stop.second.number}});
+                .emplace(std::vector<TransportStopInfo>{TransportStopInfo{route.first, in_route.first, stop.second.number}});
           }
         }
       }
@@ -338,11 +352,15 @@ class TransportMatrix {
 // 最短换乘信息
 struct MinRouteInfo {
   float dist;
-  std::vector<TransportInfo> route;
+  int from;
+  int to;
+  std::vector<int> all_stop;
+  std::vector<TransportStopInfo> route;
   std::vector<char> orient;
 };
 
 class TransportSystem {
+  friend class TransportDisplay;
  private:
   // 站点列表
   std::map<int, Stop> stops;
@@ -365,8 +383,9 @@ class TransportSystem {
     auto &to_stop = stops.at(to);
     // 初始化
     float min_distance = std::numeric_limits<float>::max();
-    std::vector<TransportInfo> min_route;
+    std::vector<TransportStopInfo> min_route;
     std::vector<char> min_orient;
+    std::vector<int> min_stop;
     // 计算所有可能的换乘线路，即计算从起点的所在线路到终点所在的线路可能的换乘线路
     for (const auto &from_route : from_stop.in_route) {
       for (const auto &to_route : to_stop.in_route) {
@@ -383,38 +402,43 @@ class TransportSystem {
             auto cur_route = from_route.first;
             // 初始化方向信息
             std::vector<char> cur_orient;
+            std::vector<int> all_stop;
             // 对于该换乘线路上的所有转乘站点
             for (auto &stop : route) {
               // 求出当前站点到转乘站点的距离
-              auto c_dist = routes.at(cur_route).distanceAtC(cur_stop, stop.stop);
-              auto r_dist = routes.at(cur_route).distanceAtR(cur_stop, stop.stop);
-              if (equal(c_dist, -1.0f) && equal(r_dist, -1.0f)) {
+              auto[c_dist, cs] = routes.at(cur_route).distanceAtC(cur_stop, stop.stop);
+              auto[r_dist, rs] = routes.at(cur_route).distanceAtR(cur_stop, stop.stop);
+              if (cs.empty() && rs.empty()) {
                 cur_dist = -1;
                 break;
               }
-              if (equal(r_dist, -1.0f) || r_dist >= c_dist) {
+              if (rs.empty() || r_dist >= c_dist) {
                 cur_dist += c_dist;
                 cur_orient.push_back('C');
-              } else if (equal(c_dist, -1.0f) || c_dist >= r_dist) {
+                all_stop.insert(all_stop.end(), cs.begin(), cs.end());
+              } else if (cs.empty() || c_dist >= r_dist) {
                 cur_dist += r_dist;
                 cur_orient.push_back('R');
+                all_stop.insert(all_stop.end(), rs.begin(), rs.end());
               }
               // 更新当前站点、当前线路信息
               cur_route = stop.to;
               cur_stop = stop.stop;
             }
             // 计算当前站点到终点的距离
-            auto c_dist = routes.at(cur_route).distanceAtC(cur_stop, to_stop.number);
-            auto r_dist = routes.at(cur_route).distanceAtR(cur_stop, to_stop.number);
-            if (equal(c_dist, -1.0f) && equal(r_dist, -1.0f)) {
+            auto[c_dist, cs] = routes.at(cur_route).distanceAtC(cur_stop, to_stop.number);
+            auto[r_dist, rs] = routes.at(cur_route).distanceAtR(cur_stop, to_stop.number);
+            if (cs.empty() && rs.empty()) {
               cur_dist = -1;
             } else {
-              if (equal(r_dist, -1.0f) || r_dist >= c_dist) {
+              if (rs.empty() || r_dist >= c_dist) {
                 cur_dist += c_dist;
                 cur_orient.push_back('C');
+                all_stop.insert(all_stop.end(), cs.begin(), cs.end());
               } else {
                 cur_dist += r_dist;
                 cur_orient.push_back('R');
+                all_stop.insert(all_stop.end(), rs.begin(), rs.end());
               }
             }
             // 如果该线路的距离更短，更新最短换乘信息
@@ -422,29 +446,147 @@ class TransportSystem {
               min_distance = cur_dist;
               min_route = route;
               min_orient = cur_orient;
+              min_stop = all_stop;
+
             }
           }
         }
       }
     }
-    return {min_distance, min_route, min_orient};
+    return {min_distance, from, to, min_stop, min_route, min_orient};
+  }
+  MinRouteInfo SearchRoute(Point from, Point to) const {
+    float min_from_dist = std::numeric_limits<float>::max();
+    float min_to_dist = std::numeric_limits<float>::max();
+    int min_from_stop = -1;
+    int min_to_stop = -1;
+    for (auto &stop : stops) {
+      auto dist = stop.second.point.distance(from);
+      if (dist < min_from_dist && !stop.second.in_route.empty()) {
+        min_from_dist = dist;
+        min_from_stop = stop.second.number;
+      }
+      dist = stop.second.point.distance(to);
+      if (dist < min_to_dist && !stop.second.in_route.empty()) {
+        min_to_dist = dist;
+        min_to_stop = stop.second.number;
+      }
+    }
+    return CalculateDistance(min_from_stop, min_to_stop);
+  }
+};
+
+class TransportDisplay : public QWidget {
+  const TransportSystem &system;
+  MinRouteInfo min_route;
+  int from_x, from_y, to_x, to_y;
+  bool set_from = true;
+ public:
+  TransportDisplay(const TransportSystem &s) : system(s) {
+    resize(1024, 768);
+    setWindowTitle("Transport Display");
+  }
+  void mousePressEvent(QMouseEvent *event) override {
+    if (set_from) {
+      from_x = event->x();
+      from_y = event->y();
+      set_from = false;
+    } else {
+      to_x = event->x();
+      to_y = event->y();
+      min_route = system.SearchRoute(
+          Point{float(from_x), float(from_y)},
+          Point{float(to_x), float(to_y)});
+      std::cout << "最短距离: " << min_route.dist << std::endl;
+      std::cout << "换乘线路: ";
+      for (int i = 0; i < min_route.route.size(); ++i) {
+        std::cout << "[" << min_route.orient[i] << ":" << min_route.route[i].from << " --" << min_route.route[i].stop
+                  << "--> " << min_route.route[i].to
+                  << "]";
+      }
+      std::cout << "\n";
+      set_from = true;
+    }
+    repaint();
+  }
+  void paintEvent(QPaintEvent *event) override {
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    QPen line(Qt::black, 3);
+    QPen point(Qt::yellow, 6);
+    QPen trans(Qt::red, 5);
+    painter.drawText(800, 600, QString("起点 X: %1 Y: %2").arg(from_x).arg(from_y));
+    painter.drawText(800, 625, QString("终点 X: %1 Y: %2").arg(to_x).arg(to_y));
+    painter.drawText(800, 650, QString(set_from ? "点击设置起点" : "点击设置终点"));
+    for (auto &route : system.routes) {
+      if (!route.second.C.empty()) {
+        auto cur_stop = route.second.C.at(1);
+        painter.setPen(line);
+        painter.drawText(int(cur_stop.point.x), int(cur_stop.point.y), QString::number(route.first) + 'C');
+        for (auto &stop: route.second.C) {
+          painter.drawLine(int(cur_stop.point.x),
+                           int(cur_stop.point.y),
+                           int(stop.second.point.x),
+                           int(stop.second.point.y));
+          cur_stop = stop.second;
+        }
+      }
+      if (!route.second.R.empty()) {
+        auto cur_stop = route.second.R.at(1);
+        painter.drawText(int(cur_stop.point.x), int(cur_stop.point.y), QString::number(route.first) + 'R');
+        for (auto &stop: route.second.C) {
+          painter.drawLine(int(cur_stop.point.x),
+                           int(cur_stop.point.y),
+                           int(stop.second.point.x),
+                           int(stop.second.point.y));
+          cur_stop = stop.second;
+        }
+      }
+      painter.setPen(trans);
+      if (!min_route.route.empty()) {
+        auto cur_stop = min_route.from;
+        std::cout << cur_stop << "->";
+        for (auto &stop: min_route.all_stop) {
+          painter.drawLine(int(system.stops.at(cur_stop).point.x),
+                           int(system.stops.at(cur_stop).point.y),
+                           int(system.stops.at(stop).point.x),
+                           int(system.stops.at(stop).point.y));
+          cur_stop = stop;
+          std::cout << cur_stop << "->";
+        }
+        std::cout << "\n";
+        painter.drawLine(
+            int(system.stops.at(cur_stop).point.x),
+            int(system.stops.at(cur_stop).point.y),
+            to_x, to_y);
+      }
+      for (auto &stop : system.stops) {
+        painter.setPen(point);
+        painter.drawPoint(int(stop.second.point.x), int(stop.second.point.y));
+        painter.setPen(line);
+        painter.drawText(int(stop.second.point.x), int(stop.second.point.y), QString::number(stop.second.number));
+      }
+    }
   }
 };
 
 int main(int argc, char *argv[]) {
   TransportSystem ts("../stops.txt", "../lines.txt");
-  auto p = ts.CalculateDistance(atoi(argv[1]), atoi(argv[2]));
-  //auto p = ts.CalculateDistance(13, 25);
-  if (p.dist < 0) {
-    std::cerr << "没有合适的线路！\n";
-    return 0;
-  }
-  std::cout << "最短距离: " << p.dist << std::endl;
-  std::cout << "换乘线路: ";
-  for (int i = 0; i < p.route.size(); ++i) {
-    std::cout << "[" << p.orient[i] << ":" << p.route[i].from << " --" << p.route[i].stop << "--> " << p.route[i].to
-              << "]";
-  }
-  std::cout << "\n";
-  return 0;
+//  auto p = ts.CalculateDistance(atoi(argv[1]), atoi(argv[2]));
+//  //auto p = ts.CalculateDistance(13, 25);
+//  if (p.dist < 0) {
+//    std::cerr << "没有合适的线路！\n";
+//    return 0;
+//  }
+//  std::cout << "最短距离: " << p.dist << std::endl;
+//  std::cout << "换乘线路: ";
+//  for (int i = 0; i < p.route.size(); ++i) {
+//    std::cout << "[" << p.orient[i] << ":" << p.route[i].from << " --" << p.route[i].stop << "--> " << p.route[i].to
+//              << "]";
+//  }
+//  std::cout << "\n";
+  QApplication app(argc, argv);
+  TransportDisplay dis(ts);
+  dis.show();
+  return app.exec();
 }
